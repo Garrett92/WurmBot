@@ -8,6 +8,7 @@ import com.wurmonline.client.renderer.gui.CreationWindow;
 import com.wurmonline.client.renderer.gui.PaperDollInventory;
 import com.wurmonline.client.renderer.gui.PaperDollSlot;
 import com.wurmonline.shared.constants.PlayerAction;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
@@ -19,6 +20,14 @@ public class ArcherBot extends Bot {
 
     private float staminaThreshold;
     private InventoryMetaItem bow;
+
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(ArcherBot.class,
+                "Automatically shoots at selected target with currently equipped bow. " +
+                        "When the string breaks tries to place a new one. " +
+                        "Deactivates on target death.",
+                "ar");
+    }
 
     public ArcherBot() {
         registerInputHandler(ArcherBot.InputKey.s, this::setStaminaThreshold);
@@ -63,6 +72,7 @@ public class ArcherBot extends Bot {
                 ReflectionUtil.getField(creationWindow.getClass(), "progressBar"));
         registerEventProcessors();
         while (isActive()) {
+            waitOnPause();
             float stamina = Mod.hud.getWorld().getPlayer().getStamina();
             float damage = Mod.hud.getWorld().getPlayer().getDamage();
             float progress = ReflectionUtil.getPrivateField(progressBar,
@@ -72,11 +82,11 @@ public class ArcherBot extends Bot {
                         InventoryMetaItem bowstring = Utils.getInventoryItem("bow string");
                         if (bowstring != null) {
                             Mod.hud.getWorld().getServerConnection().sendAction(bowstring.getId(),
-                                    new long[]{bow.getId()}, new PlayerAction((short) 132, PlayerAction.ANYTHING));//change bowstring
+                                    new long[]{bow.getId()}, new PlayerAction("",(short) 132, PlayerAction.ANYTHING));//change bowstring
                         }
                 }
                 for (int i = 0; i < maxActions; i++)
-                    Mod.hud.getWorld().getServerConnection().sendAction(bow.getId(), new long[]{mobId}, (!isArcheryTarget ? PlayerAction.SHOOT : new PlayerAction((short) 134, PlayerAction.ANYTHING)));
+                    Mod.hud.getWorld().getServerConnection().sendAction(bow.getId(), new long[]{mobId}, (!isArcheryTarget ? PlayerAction.SHOOT : new PlayerAction("",(short) 134, PlayerAction.ANYTHING)));
 
                 ServerConnectionListenerClass sscc = Mod.hud.getWorld().getServerConnection().getServerConnectionListener();
                 Map<Long, CreatureCellRenderable> creatures = ReflectionUtil.getPrivateField(sscc,

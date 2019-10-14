@@ -7,6 +7,7 @@ import com.wurmonline.mesh.GrassData;
 import com.wurmonline.mesh.Tiles;
 import com.wurmonline.shared.constants.PlayerAction;
 import javafx.util.Pair;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 
@@ -50,7 +51,19 @@ public class ForagerBot extends Bot {
     private boolean foraging = true;
     private boolean botanizing = true;
     private boolean dropping = false;
+    private boolean dropWhenFull = false;
     private boolean verbose = false;
+    private List<String> filterItemNames = new ArrayList<>();
+
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(ForagerBot.class,
+                "Can forage, botanize, collect grass and flowers in an area surrounding player. " +
+                        "Bot can be configured to process rectangular area of any size. " +
+                        "Picked items, to prevent the inventory overflow, will be put to the containers. The name of containers can be configured. " +
+                        "Default container name is \"" + ForagerBot.DEFAULT_CONTAINER_NAME + "\". Containers only in root directory of player's inventory will be taken into account. " +
+                        "Bot can be configured to drop picked items on the floor. ",
+                "fg");
+    }
 
     public ForagerBot() {
         registerInputHandler(ForagerBot.InputKey.s, this::setStaminaThreshold);
@@ -62,12 +75,12 @@ public class ForagerBot extends Bot {
         registerInputHandler(ForagerBot.InputKey.btl, input -> showBotanizingTypes());
         registerInputHandler(ForagerBot.InputKey.bt, this::setBotanizingType);
         registerInputHandler(ForagerBot.InputKey.d, input -> toggleDropping());
+        registerInputHandler(ForagerBot.InputKey.dwf, input -> toggleDroppingWhenFull());
+        registerInputHandler(ForagerBot.InputKey.dfa, this::addItemToFilter);
+        registerInputHandler(ForagerBot.InputKey.dfc, input -> clearFilter());
         registerInputHandler(ForagerBot.InputKey.v, input -> toggleVerboseMode());
         registerInputHandler(ForagerBot.InputKey.scn, this::setContainerName);
         registerInputHandler(ForagerBot.InputKey.na, this::setMaxActions);
-        registerInputHandler(ForagerBot.InputKey.area, this::toggleAreaMode);
-        registerInputHandler(ForagerBot.InputKey.area_speed, this::setMovementSpeed);
-
     }
 
     @Override
@@ -80,6 +93,7 @@ public class ForagerBot extends Bot {
         maxActions = Utils.getMaxActionNumber();
         registerEventProcessors();
         while (isActive()) {
+            waitOnPause();
             float stamina = player.getStamina();
             float damage = player.getDamage();
             float forageSkill = player.getSkillSet().getSkillValue("foraging");
@@ -155,7 +169,7 @@ public class ForagerBot extends Bot {
                             if (GrassData.getFlowerTypeName(tileData).contains("flowers") && !tileType.isTree() && !tileType.isBush() && queuedTiles.size() < maxActions) {
                                 Mod.hud.getWorld().getServerConnection().sendAction(sickleId,
                                         new long[]{Tiles.getTileId(checkedtiles[tileIndex][0], checkedtiles[tileIndex][1], 0)},
-                                        new PlayerAction((short) 187, PlayerAction.ANYTHING));
+                                        new PlayerAction("",(short) 187, PlayerAction.ANYTHING));
                                 queuedTiles.add(coordsPair);
                                 if (verbose)
                                     Utils.consolePrint("Start cutting flowers at tile - " + checkedtiles[tileIndex][0] + " " + checkedtiles[tileIndex][1]);
@@ -220,17 +234,35 @@ public class ForagerBot extends Bot {
                         }
                     }
                 }
-                else {
-                    List<InventoryMetaItem> foragables = firstLevelItems.stream()
-                            .filter(ForagerBot::isForagable)
-                            .filter(item -> item.getRarity() == 0)
-                            .collect(Collectors.toList());
-                    long[] foragablesIds = Utils.getItemIds(foragables);
-                    if (foragablesIds != null)
-                        Mod.hud.sendAction(PlayerAction.DROP, foragablesIds);
+                else if(!dropWhenFull) {
+                    dropItems();
                 }
             }
             sleep(timeout);
+        }
+    }
+
+    public void dropItems(){
+        if (dropping) {
+            List<InventoryMetaItem> firstLevelItems = Utils.getFirstLevelItems();
+            List<InventoryMetaItem> foragables = firstLevelItems.stream()
+                    .filter(ForagerBot::isForagable)
+                    .filter(item -> item.getRarity() == 0)
+                    .collect(Collectors.toList());
+            if (!filterItemNames.isEmpty()) {
+                Iterator<InventoryMetaItem> iter = foragables.iterator();
+                while (iter.hasNext()) {
+                    InventoryMetaItem item = iter.next();
+                    for (String name : filterItemNames) {
+                        if (item.getBaseName().contains(name)) {
+                            iter.remove();
+                        }
+                    }
+                }
+            }
+            long[] foragablesIds = Utils.getItemIds(foragables);
+            if (foragablesIds != null)
+                Mod.hud.sendAction(PlayerAction.DROP, foragablesIds);
         }
     }
 
@@ -251,6 +283,8 @@ public class ForagerBot extends Bot {
                         || message.contains("This area looks picked clean.")
                         || message.contains("You fail to find")),
                 this::fbFinished);
+        registerEventProcessor(message -> (message.contains("inventory is full") && dropWhenFull),
+                this::dropItems);
     }
     private void showForagingTypes() {
         StringBuilder foragingTypes = new StringBuilder();
@@ -302,35 +336,6 @@ public class ForagerBot extends Bot {
         this.botanizeType = botanizeType;
     }
 
-    private void toggleAreaMode(String []input) {
-        boolean successfullAreaModeChange = areaAssistant.toggleAreaTour(input);
-        if (!successfullAreaModeChange)
-            printInputKeyUsageString(ForagerBot.InputKey.area);
-    }
-
-    private void setMovementSpeed(String []input) {
-        if (input == null || input.length != 1) {
-            printInputKeyUsageString(ForagerBot.InputKey.area_speed);
-            return;
-        }
-        float speed;
-        try {
-            speed = Float.parseFloat(input[0]);
-            if (speed < 0) {
-                Utils.consolePrint("Speed can not be negative");
-                return;
-            }
-            if (speed == 0) {
-                Utils.consolePrint("Speed can not be equal to 0");
-                return;
-            }
-            areaAssistant.setStepTimeout((long) (1000 / speed));
-            Utils.consolePrint(String.format("The speed for area mode was set to %.2f", speed));
-        } catch (NumberFormatException e) {
-            Utils.consolePrint("Wrong speed value");
-        }
-    }
-
     private void setMaxActions(String [] input) {
         if (input.length != 1 ){
             printInputKeyUsageString(ForagerBot.InputKey.na);
@@ -345,11 +350,14 @@ public class ForagerBot extends Bot {
     }
 
     private void setContainerName(String []input) {
-        if (input.length != 1 ){
+        if (input.length < 1 ){
             printInputKeyUsageString(ForagerBot.InputKey.scn);
             return;
         }
-        containerName = input[0];
+        StringBuilder containerNameBuilder = new StringBuilder(input[0]);
+        for (int i = 1; i < input.length; i++)
+            containerNameBuilder.append(" ").append(input[i]);
+        containerName = containerNameBuilder.toString();
         Utils.consolePrint("Container name was set to \"" + containerName + "\"");
     }
 
@@ -367,6 +375,28 @@ public class ForagerBot extends Bot {
             Utils.consolePrint("Dropping is on!");
         else
             Utils.consolePrint("Dropping is off!");
+    }
+    private void toggleDroppingWhenFull() {
+        dropWhenFull = !dropWhenFull;
+        if (dropWhenFull)
+            Utils.consolePrint("Drop when inventory full.");
+        else
+            Utils.consolePrint("Drop when action done.");
+    }
+
+    private void addItemToFilter(String[] input) {
+        if (input.length < 1 ){
+            printInputKeyUsageString(InputKey.dfa);
+            return;
+        }
+        String itemName = Arrays.stream(input).collect(Collectors.joining(" "));
+        filterItemNames.add(itemName);
+        Utils.consolePrint("Added " + itemName + " to filter list. Current filter: [" + String.join(",", filterItemNames) + "]");
+    }
+
+    private void clearFilter() {
+        Utils.consolePrint("Cleared drop filter.");
+        filterItemNames.clear();
     }
 
     private void toggleBotanizing() {
@@ -497,13 +527,13 @@ public class ForagerBot extends Bot {
         btl("Show the list of botanizing types", ""),
         bt("Set the botanizing type", "type"),
         d("Toggle the dropping of collected items to the ground", ""),
+        dwf("Change drop mode between drop when full inventory or drop after every action", ""),
+        dfa("Add item to drop filter. Drop filter items won't be dropped", "name(string)"),
+        dfc("Clear filter", ""),
         v("Toggle the verbose mode. " +
                 "Additional information will be shown in console during the work of the bot in verbose mode", ""),
         scn("Set the new name for containers to put sprouts/harvest", "container_name"),
-        na("Set the number of actions bot will do each time", "number"),
-        area("Toggle the area processing mode. ", "tiles_ahead tiles_to_the_right"),
-        area_speed("Set the speed of moving for area mode. Default value is 1 second per tile.", "speed(float value)");
-
+        na("Set the number of actions bot will do each time", "number");
 
         private String description;
         private String usage;

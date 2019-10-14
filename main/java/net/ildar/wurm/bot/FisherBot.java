@@ -5,6 +5,7 @@ import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import com.wurmonline.client.renderer.gui.CreationWindow;
 import com.wurmonline.mesh.Tiles;
 import com.wurmonline.shared.constants.PlayerAction;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
@@ -13,6 +14,11 @@ public class FisherBot extends Bot
 {
     private boolean repairInstrument;
     private boolean lineBreaks;
+
+    /*public static BotRegistration getRegistration() {
+        return new BotRegistration(FisherBot.class,
+                "Catches and cuts fish", "fsh");
+    }*/
 
     public FisherBot()
     {
@@ -50,6 +56,7 @@ public class FisherBot extends Bot
         registerEventProcessors();
         while (isActive())
         {
+            waitOnPause();
             float progress = ReflectionUtil.getPrivateField(progressBar, ReflectionUtil.getField(progressBar.getClass(), "progress"));
 
             if (repairInstrument && fishingRod.getDamage() > 10)
@@ -75,13 +82,15 @@ public class FisherBot extends Bot
                     if (fishingLine != null) 
                     {
                         Mod.hud.getWorld().getServerConnection().sendAction(fishingLine.getId(),
-                                new long[]{fishingRod.getId()}, new PlayerAction((short) 132, PlayerAction.ANYTHING));
+                                new long[]{fishingRod.getId()}, new PlayerAction("",(short) 132, PlayerAction.ANYTHING));
                     }
                     else
                     {
                         Utils.consolePrint("You don't have any fishing line");
                     }
                 }
+                if (fishingRod.getDamage() > 1)
+                    Mod.hud.sendAction(PlayerAction.REPAIR, fishingRod.getId());
 
                 world.getServerConnection().sendAction(
                         fishingRod.getId(),

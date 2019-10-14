@@ -13,56 +13,61 @@ import javassist.ClassPool;
 import javassist.CtClass;
 import javassist.CtMethod;
 import javassist.CtNewMethod;
-import net.ildar.wurm.bot.Bot;
 import net.ildar.wurm.bot.BulkItemGetterBot;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
 import org.gotti.wurmunlimited.modloader.classhooks.HookManager;
 import org.gotti.wurmunlimited.modloader.interfaces.Configurable;
 import org.gotti.wurmunlimited.modloader.interfaces.Initable;
+import org.gotti.wurmunlimited.modloader.interfaces.PreInitable;
 import org.gotti.wurmunlimited.modloader.interfaces.WurmClientMod;
 
 import java.io.FileInputStream;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class Mod implements WurmClientMod, Initable, Configurable {
+public class Mod implements WurmClientMod, Initable, Configurable, PreInitable {
+    private final long BLESS_TIMEOUT = 1800000;
+
     public static HeadsUpDisplay hud;
-    public static List<WurmComponent> components;
+    private static Mod instance;
 
-    private static Logger logger;
-    private static Map<ConsoleCommand, ConsoleCommandHandler> consoleCommandHandlers;
+    public List<WurmComponent> components;
+    private Logger logger;
+    private Map<ConsoleCommand, ConsoleCommandHandler> consoleCommandHandlers;
+    private long lastBless = 0L;
+    private boolean noBlessings = false;
 
-    private static final long BLESS_TIMEOUT = 1800000;
-    private static long lastBless = 0L;
-    private static boolean noBlessings = false;
-
-    static {
+    public Mod() {
         logger = Logger.getLogger("IldarMod");
         consoleCommandHandlers = new HashMap<>();
-        consoleCommandHandlers.put(ConsoleCommand.sleep, Mod::handleSleepCommand);
-        consoleCommandHandlers.put(ConsoleCommand.look, Mod::handleLookCommand);
+        consoleCommandHandlers.put(ConsoleCommand.sleep, this::handleSleepCommand);
+        consoleCommandHandlers.put(ConsoleCommand.look, this::handleLookCommand);
         consoleCommandHandlers.put(ConsoleCommand.combine, input -> handleCombineCommand());
-        consoleCommandHandlers.put(ConsoleCommand.move, Mod::handleMoveCommand);
+        consoleCommandHandlers.put(ConsoleCommand.move, this::handleMoveCommand);
         consoleCommandHandlers.put(ConsoleCommand.stabilize, input -> Utils.stabilizePlayer());
-        consoleCommandHandlers.put(ConsoleCommand.bot, Mod::configureBot);
-        consoleCommandHandlers.put(ConsoleCommand.mts, Mod::handleMtsCommand);
-        consoleCommandHandlers.put(ConsoleCommand.info, Mod::handleInfoCommand);
+        consoleCommandHandlers.put(ConsoleCommand.bot, this::handleBotCommand);
+        consoleCommandHandlers.put(ConsoleCommand.mts, this::handleMtsCommand);
+        consoleCommandHandlers.put(ConsoleCommand.info, this::handleInfoCommand);
         consoleCommandHandlers.put(ConsoleCommand.actionlist, input -> showActionList());
-        consoleCommandHandlers.put(ConsoleCommand.action, Mod::handleActionCommand);
+        consoleCommandHandlers.put(ConsoleCommand.action, this::handleActionCommand);
         consoleCommandHandlers.put(ConsoleCommand.getid, input -> copyIdToClipboard());
         consoleCommandHandlers.put(ConsoleCommand.mtcenter, input -> Utils.moveToCenter());
         consoleCommandHandlers.put(ConsoleCommand.mtcorner, input -> Utils.moveToNearestCorner());
         consoleCommandHandlers.put(ConsoleCommand.stabilizelook, input -> Utils.stabilizeLook());
+        Mod.instance = this;
+    }
+
+    public static Mod getInstance() {
+        return instance;
     }
 
     /**
      * Handle console commands
      */
     @SuppressWarnings("unused")
-    public static boolean handleInput(final String cmd, final String[] data) {
+    public boolean handleInput(final String cmd, final String[] data) {
         ConsoleCommand consoleCommand = ConsoleCommand.getByName(cmd);
         if (consoleCommand == ConsoleCommand.unknown)
             return false;
@@ -82,19 +87,23 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         return true;
     }
 
-    private static void printConsoleCommandUsage(ConsoleCommand consoleCommand) {
+    private void handleBotCommand(String[] input) {
+        BotController.getInstance().handleInput(input);
+    }
+
+    private void printConsoleCommandUsage(ConsoleCommand consoleCommand) {
         if (consoleCommand == ConsoleCommand.look) {
             Utils.consolePrint("Usage: " + ConsoleCommand.look.name() + " {" + getCardinalDirectionsList() + "}");
             return;
         }
         if (consoleCommand == ConsoleCommand.bot) {
-            Utils.consolePrint(Bot.getBotUsageString());
+            Utils.consolePrint(BotController.getInstance().getBotUsageString());
             return;
         }
         Utils.consolePrint("Usage: " + consoleCommand.name() + " " + consoleCommand.getUsage());
     }
 
-    private static void copyIdToClipboard() {
+    private void copyIdToClipboard() {
         int x = hud.getWorld().getClient().getXMouse();
         int y = hud.getWorld().getClient().getYMouse();
         long[] ids = hud.getCommandTargetsFrom(x, y);
@@ -112,7 +121,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         }
     }
 
-    private static void handleInfoCommand(String [] input) {
+    private void handleInfoCommand(String [] input) {
         if (input.length != 1) {
             printConsoleCommandUsage(ConsoleCommand.info);
             printAvailableConsoleCommands();
@@ -128,13 +137,13 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         Utils.consolePrint(command.description);
     }
 
-    private static void showActionList() {
+    private void showActionList() {
         for(Action action: Action.values()) {
             Utils.consolePrint("\"" + action.abbreviation + "\" is to " + action.name() + " with tool \"" + action.toolName + "\"");
         }
     }
 
-    private static void handleActionCommand(String [] input) {
+    private void handleActionCommand(String [] input) {
         if (input == null || input.length == 0) {
             printConsoleCommandUsage(ConsoleCommand.action);
             return;
@@ -172,7 +181,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         }
     }
 
-    private static void printItemInformation() {
+    private void printItemInformation() {
         WurmComponent inventoryComponent = Utils.getTargetComponent(c -> c instanceof ItemListWindow || c instanceof InventoryWindow);
         if (inventoryComponent == null) {
             Utils.consolePrint("Didn't find an inventory");
@@ -195,7 +204,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
             printItemInfo(item);
     }
 
-    private static void printTileInformation() {
+    private void printTileInformation() {
         int checkedtiles[][] = Utils.getAreaCoordinates();
         for (int[] checkedtile : checkedtiles) {
             Tiles.Tile tileType = hud.getWorld().getNearTerrainBuffer().getTileType(checkedtile[0], checkedtile[1]);
@@ -203,7 +212,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         }
     }
 
-    private static void printPlayerInformation() {
+    private void printPlayerInformation() {
         Utils.consolePrint("Player \"" + hud.getWorld().getPlayer().getPlayerName() + "\"");
         Utils.consolePrint("Stamina: " + hud.getWorld().getPlayer().getStamina());
         Utils.consolePrint("Damage: " + hud.getWorld().getPlayer().getDamage());
@@ -214,7 +223,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         Utils.consolePrint("Layer: " + hud.getWorld().getPlayerLayer());
     }
 
-    private static void printItemInfo(InventoryMetaItem item) {
+    private void printItemInfo(InventoryMetaItem item) {
         if (item == null) {
             Utils.consolePrint("Null item");
             return;
@@ -231,7 +240,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         Utils.consolePrint(" Color override:" + item.isColorOverride() + " Marked for update:" + item.isMarkedForUpdate() + " Unfinished:" + item.isUnfinished());
     }
 
-    private static void handleMtsCommand(String []input) {
+    private void handleMtsCommand(String []input) {
         if (input.length < 2)  {
             printConsoleCommandUsage(ConsoleCommand.mts);
             return;
@@ -256,7 +265,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         moveToSacrifice(input[0], favorLevel, coefficient);
     }
 
-    private static void handleMoveCommand(String []input) {
+    private void handleMoveCommand(String []input) {
         if (input.length == 1) {
             try {
                 float d = Float.parseFloat(input[0]);
@@ -269,7 +278,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
             printConsoleCommandUsage(ConsoleCommand.move);
     }
 
-    private static void handleCombineCommand() {
+    private void handleCombineCommand() {
         long[] itemsToCombine = hud.getInventoryWindow().getInventoryListComponent().getSelectedCommandTargets();
         if (itemsToCombine == null || itemsToCombine.length == 0) {
             Utils.consolePrint("No selected items!");
@@ -278,7 +287,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         hud.getWorld().getServerConnection().sendAction(itemsToCombine[0], itemsToCombine, PlayerAction.COMBINE);
     }
 
-    private static void handleSleepCommand(String [] input) {
+    private void handleSleepCommand(String [] input) {
         if (input.length == 1) {
             try {
                 Thread.sleep(Long.parseLong(input[0]));
@@ -290,7 +299,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         } else printConsoleCommandUsage(ConsoleCommand.sleep);
     }
 
-    private static void handleLookCommand(String []input) {
+    private void handleLookCommand(String []input) {
         if (input.length == 1) {
             CardinalDirection direction = CardinalDirection.getByName(input[0]);
             if (direction == CardinalDirection.unknown) {
@@ -306,7 +315,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
             printConsoleCommandUsage(ConsoleCommand.look);
     }
 
-    private static String getCardinalDirectionsList() {
+    private String getCardinalDirectionsList() {
         StringBuilder directions = new StringBuilder();
         for(CardinalDirection direction : CardinalDirection.values())
             directions.append(direction.name()).append("|");
@@ -314,7 +323,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         return directions.toString();
     }
 
-    private static void printAvailableConsoleCommands() {
+    private void printAvailableConsoleCommands() {
         StringBuilder commands = new StringBuilder();
         for(ConsoleCommand consoleCommand : consoleCommandHandlers.keySet())
             commands.append(consoleCommand.name()).append(", ");
@@ -324,7 +333,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
     }
 
     //move items to altar for a sacrifice
-    private static void moveToSacrifice(String itemName, float favorLevel, float coefficient) {
+    private void moveToSacrifice(String itemName, float favorLevel, float coefficient) {
         WurmComponent inventoryComponent = Utils.getTargetComponent(c -> c instanceof ItemListWindow || c instanceof InventoryWindow);
         if (inventoryComponent == null) {
             Utils.consolePrint("Didn't find an inventory under the mouse cursor");
@@ -385,74 +394,6 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         Utils.consolePrint("Didn't find an opened altar");
     }
 
-    private static void configureBot(String data[]) {
-        String usageString = Bot.getBotUsageString();
-
-        if (data.length < 1) {
-            Utils.consolePrint(usageString);
-            writeToConsoleInputLine(ConsoleCommand.bot.name() + " ");
-            return;
-        }
-        if (data[0].equals("off")) {
-            Bot.deactivateAllBots();
-            return;
-        }
-        Class<? extends Bot> botClass = Bot.getBotClass(data[0]);
-        if (botClass == null) {
-            Utils.consolePrint("Didn't find a bot with abbreviation \"" + data[0] + "\"");
-            Utils.consolePrint(usageString);
-            return;
-        }
-
-        if (data.length == 1) {
-            Bot.printBotDescription(botClass);
-            writeToConsoleInputLine(ConsoleCommand.bot.name() + " " + data[0] + " ");
-            return;
-        }
-
-        if (Bot.isInstantiated(botClass)) {
-            Bot botInstance = Bot.getInstance(botClass);
-            if (botInstance.isInterrupted()) {
-                Utils.consolePrint(botClass.getSimpleName() + " is trying to stop");
-            } else if (data[1].equals("on")) {
-                Utils.consolePrint(botClass.getSimpleName() + " is already on");
-            } else {
-                try {
-                    botInstance.handleInput(Arrays.copyOfRange(data, 1, data.length));
-                } catch (Exception e) {
-                    Utils.consolePrint("Unable to configure  " + botClass.getSimpleName());
-                    e.printStackTrace();
-                }
-            }
-        } else {
-            if (data[1].equals("on")) {
-                Bot botInstance = Bot.getInstance(botClass);
-                if (botInstance != null) {
-                    botInstance.start();
-                    Utils.consolePrint(botClass.getSimpleName() + " is on!");
-                    Bot.printBotDescription(botClass);
-                } else {
-                    Utils.consolePrint("Internal error on bot activation");
-                }
-            } else {
-                Utils.consolePrint(botClass.getSimpleName() + " is not running!");
-            }
-        }
-        writeToConsoleInputLine(ConsoleCommand.bot.name() + " " + data[0] + " ");
-    }
-
-    private static void writeToConsoleInputLine(String s) {
-        try {
-            Object consoleComponent = ReflectionUtil.getPrivateField(hud, ReflectionUtil.getField(hud.getClass(), "consoleComponent"));
-            Object inputField = ReflectionUtil.getPrivateField(consoleComponent, ReflectionUtil.getField(consoleComponent.getClass(), "inputField"));
-            Method method = inputField.getClass().getDeclaredMethod("setTextMoveToEnd", String.class);
-            method.setAccessible(true);
-            method.invoke(inputField, s);
-        } catch (IllegalAccessException | NoSuchFieldException | NoSuchMethodException | InvocationTargetException e) {
-            e.printStackTrace();
-        }
-    }
-
     @Override
     public void configure(Properties properties) {
         String enableInfoCommands = properties.getProperty("DevInfoCommands");
@@ -463,14 +404,52 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         }
         String noBlessings = properties.getProperty("NoBlessings");
         if (noBlessings != null && noBlessings.equals("true"))
-            Mod.noBlessings = true;
+            this.noBlessings = true;
+    }
+
+    @Override
+    public void preInit() {
+        try {
+            final ClassPool classPool = HookManager.getInstance().getClassPool();
+            final CtClass ctWurmConsole = classPool.getCtClass("com.wurmonline.client.console.WurmConsole");
+            ctWurmConsole.getMethod("handleDevInput", "(Ljava/lang/String;[Ljava/lang/String;)Z").insertBefore("if (net.ildar.wurm.Mod.getInstance().handleInput($1,$2)) return true;");
+
+            final CtClass ctSocketConnection = classPool.getCtClass("com.wurmonline.communication.SocketConnection");
+            ctSocketConnection.getMethod("tickWriting", "(J)Z").insertBefore("net.ildar.wurm.Utils.serverCallLock.lock();");
+            ctSocketConnection.getMethod("tickWriting", "(J)Z").insertAfter("net.ildar.wurm.Utils.serverCallLock.unlock();");
+            ctSocketConnection.getMethod("getBuffer", "()Ljava/nio/ByteBuffer;").insertBefore("net.ildar.wurm.Utils.serverCallLock.lock();");
+            ctSocketConnection.getMethod("flush", "()V").insertAfter("net.ildar.wurm.Utils.serverCallLock.unlock();");
+
+            final CtClass ctConsoleComponent = classPool.getCtClass("com.wurmonline.client.renderer.gui.ConsoleComponent");
+            CtMethod consoleGameTickMethod = CtNewMethod.make("public void gameTick() {\n" +
+                    "        while(!net.ildar.wurm.Utils.consoleMessages.isEmpty()) addLine((String)net.ildar.wurm.Utils.consoleMessages.poll(), 1.0F, 1.0F, 1.0F);\n" +
+                    "        super.gameTick();\n" +
+                    "    };", ctConsoleComponent);
+            ctConsoleComponent.addMethod(consoleGameTickMethod);
+
+            final CtClass ctWurmChat = classPool.getCtClass("com.wurmonline.client.renderer.gui.ChatPanelComponent");
+            ctWurmChat.getMethod("addText", "(Ljava/lang/String;Ljava/util/List;Z)V").insertBefore("net.ildar.wurm.Chat.onMessage($1,$2,$3);");
+            ctWurmChat.getMethod("addText", "(Ljava/lang/String;Ljava/lang/String;FFFZ)V").insertBefore("net.ildar.wurm.Chat.onMessage($1,$2,$6);");
+
+            CtClass cellRenderableClass = classPool.getCtClass("com.wurmonline.client.renderer.cell.GroundItemCellRenderable");
+            cellRenderableClass.defrost();
+            CtMethod cellRenderableInitializeMethod = CtNewMethod.make("public void initialize() {\n" +
+                    "                if (net.ildar.wurm.BotController.getInstance().isInstantiated(net.ildar.wurm.bot.GroundItemGetterBot.class)) {\n" +
+                    "                   net.ildar.wurm.bot.Bot gigBot = net.ildar.wurm.BotController.getInstance().getInstance(net.ildar.wurm.bot.GroundItemGetterBot.class);" +
+                    "                   ((net.ildar.wurm.bot.GroundItemGetterBot)gigBot).processNewItem(this);\n" +
+                    "                }\n" +
+                    "        super.initialize();\n" +
+                    "    };", cellRenderableClass);
+            cellRenderableClass.addMethod(cellRenderableInitializeMethod);
+
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error loading mod", e);
+            logger.log(Level.SEVERE, e.toString());
+        }
     }
 
     public void init() {
         try {
-            final ClassPool classPool = HookManager.getInstance().getClassPool();
-            final CtClass ctWurmConsole = classPool.getCtClass("com.wurmonline.client.console.WurmConsole");
-            ctWurmConsole.getMethod("handleDevInput", "(Ljava/lang/String;[Ljava/lang/String;)Z").insertBefore("if (net.ildar.wurm.Mod.handleInput($1,$2)) return true;");
             HookManager.getInstance().registerHook("com.wurmonline.client.renderer.gui.HeadsUpDisplay", "init", "(II)V", () -> (proxy, method, args) -> {
                 method.invoke(proxy, args);
                 Mod.hud = (HeadsUpDisplay)proxy;
@@ -503,27 +482,6 @@ public class Mod implements WurmClientMod, Initable, Configurable {
                 return null;
             });
 
-            final CtClass ctSocketConnection = classPool.getCtClass("com.wurmonline.communication.SocketConnection");
-            ctSocketConnection.getMethod("tickWriting", "(J)Z").insertBefore("net.ildar.wurm.Utils.serverCallLock.lock();");
-            ctSocketConnection.getMethod("tickWriting", "(J)Z").insertAfter("net.ildar.wurm.Utils.serverCallLock.unlock();");
-            ctSocketConnection.getMethod("getBuffer", "()Ljava/nio/ByteBuffer;").insertBefore("net.ildar.wurm.Utils.serverCallLock.lock();");
-            ctSocketConnection.getMethod("flush", "()V").insertAfter("net.ildar.wurm.Utils.serverCallLock.unlock();");
-
-            final CtClass ctConsoleComponent = classPool.getCtClass("com.wurmonline.client.renderer.gui.ConsoleComponent");
-            CtMethod consoleGameTickMethod = CtNewMethod.make("public void gameTick() {\n" +
-                    "        while(!net.ildar.wurm.Utils.consoleMessages.isEmpty()) addLine((String)net.ildar.wurm.Utils.consoleMessages.poll(), 1.0F, 1.0F, 1.0F);\n" +
-                    "        super.gameTick();\n" +
-                    "    };", ctConsoleComponent);
-            ctConsoleComponent.addMethod(consoleGameTickMethod);
-            
-            final CtClass ctGroundItemCellRenderable = classPool.getCtClass("com.wurmonline.client.renderer.cell.GroundItemCellRenderable");
-            ctGroundItemCellRenderable.getMethod("initialize", "()V").insertBefore("net.ildar.wurm.bot.GroundItemGetterBot.processNewItem($0);");
-
-            final CtClass ctWurmChat = classPool.getCtClass("com.wurmonline.client.renderer.gui.ChatPanelComponent");
-            ctWurmChat.getMethod("addText", "(Ljava/lang/String;Ljava/util/List;Z)V").insertBefore("net.ildar.wurm.Chat.onMessage($1,$2,$3);");
-            ctWurmChat.getMethod("addText", "(Ljava/lang/String;Ljava/lang/String;FFFZ)V").insertBefore("net.ildar.wurm.Chat.onMessage($1,$2,$6);");
-
-
             HookManager.getInstance().registerHook("com.wurmonline.client.startup.ServerBrowserDirectConnect", "loadOptions", "()V", () -> (proxy, method, args) -> {
                 method.invoke(proxy, args);
                 Properties properties = new Properties();
@@ -552,7 +510,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
                     PickableUnit pickableUnit = ReflectionUtil.getPrivateField(Mod.hud.getSelectBar(),
                             ReflectionUtil.getField(Mod.hud.getSelectBar().getClass(), "selectedUnit"));
                     if (pickableUnit != null)
-                        Mod.hud.sendAction(new PlayerAction((short) 384, PlayerAction.ANYTHING), pickableUnit.getId());
+                        Mod.hud.sendAction(new PlayerAction("",(short) 384, PlayerAction.ANYTHING), pickableUnit.getId());
                 } catch (Exception e) {
                     Utils.consolePrint("Got exception at the start of meditation " + e.getMessage());
                     Utils.consolePrint(e.toString());
@@ -562,10 +520,8 @@ public class Mod implements WurmClientMod, Initable, Configurable {
             logger.info("Loaded");
         }
         catch (Exception e) {
-            if (Mod.logger != null) {
-                Mod.logger.log(Level.SEVERE, "Error loading mod", e);
-                Mod.logger.log(Level.SEVERE, e.toString());
-            }
+            logger.log(Level.SEVERE, "Error loading mod", e);
+            logger.log(Level.SEVERE, e.toString());
         }
     }
 
@@ -639,6 +595,7 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         }
     }
 
+    @SuppressWarnings("unused")
     private enum Action{
         Butcher("bu", "butchering knife", PlayerAction.BUTCHER),
         Bury("br", "shovel", PlayerAction.BURY),
@@ -649,8 +606,8 @@ public class Mod implements WurmClientMod, Initable, Configurable {
         TendField("ft", "rake", PlayerAction.FARM),
         Dig("d", "shovel", PlayerAction.DIG),
         DigToPile("dp", "shovel", PlayerAction.DIG_TO_PILE),
-        Lockpick("l", "lock picks", new PlayerAction((short) 101, PlayerAction.ANYTHING)),
-        LightFire("lf", "steel and flint", new PlayerAction((short) 12, PlayerAction.ANYTHING)),
+        Lockpick("l", "lock picks", new PlayerAction("",(short) 101, PlayerAction.ANYTHING)),
+        LightFire("lf", "steel and flint", new PlayerAction("",(short) 12, PlayerAction.ANYTHING)),
         LeadAnimal("la", "rope", PlayerAction.LEAD),
         Sow("s", "seeds", PlayerAction.SOW);
 

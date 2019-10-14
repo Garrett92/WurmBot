@@ -3,6 +3,7 @@ package net.ildar.wurm.bot;
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import com.wurmonline.client.renderer.gui.*;
 import com.wurmonline.shared.constants.PlayerAction;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
@@ -15,7 +16,7 @@ import java.util.stream.Collectors;
 
 public class CrafterBot extends Bot {
     private float staminaThreshold;
-    private boolean repairInstrument;
+    private boolean repairInstrument = true;
     private String targetName;
     private String sourceName;
     private Comparator<InventoryMetaItem> weightComparator = Comparator.comparingDouble(InventoryMetaItem::getWeight);
@@ -31,6 +32,13 @@ public class CrafterBot extends Bot {
     private boolean withoutActionsInUse;
     private long lastClick;
     private boolean singleSourceItemMode;
+
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(CrafterBot.class,
+                "Automatically does crafting operations using items from crafting window. " +
+                        "New crafting operations are not starting until an action queue becomes empty. This behaviour can be disabled. ",
+                "c");
+    }
 
     public CrafterBot() {
         registerInputHandler(CrafterBot.InputKey.r, input -> toggleRepairInstrument());
@@ -70,6 +78,7 @@ public class CrafterBot extends Bot {
                 ReflectionUtil.getField(creationWindow.getClass(), "target"));
         registerEventProcessors();
         while (isActive()) {
+            waitOnPause();
             float stamina = Mod.hud.getWorld().getPlayer().getStamina();
             float damage = Mod.hud.getWorld().getPlayer().getDamage();
             float progress = ReflectionUtil.getPrivateField(progressBar,
@@ -89,7 +98,7 @@ public class CrafterBot extends Bot {
                 if (unfinishedItemList != null) {
                     List lines = ReflectionUtil.getPrivateField(unfinishedItemList,
                             ReflectionUtil.getField(unfinishedItemList.getClass(), "lines"));
-                    if (lines != null) {
+                    if (lines != null && lines.size() > 0) {
                         targetName = null;
                         //noinspection ForLoopReplaceableByForEach
                         for (int i = 0; i < lines.size(); i++) {

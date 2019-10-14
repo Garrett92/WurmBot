@@ -1,10 +1,15 @@
 package net.ildar.wurm.bot;
 
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
+import com.wurmonline.client.renderer.CreatureData;
+import com.wurmonline.client.renderer.GroundItemData;
 import com.wurmonline.client.renderer.PickableUnit;
+import com.wurmonline.client.renderer.cell.CreatureCellRenderable;
+import com.wurmonline.client.renderer.cell.GroundItemCellRenderable;
 import com.wurmonline.client.renderer.gui.*;
 import com.wurmonline.shared.constants.PlayerAction;
 import com.wurmonline.shared.util.MaterialUtilities;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
@@ -18,6 +23,17 @@ public class ImproverBot extends Bot {
     private boolean improveActionFinished;
     private boolean groundMode;
     private ToolSkill toolSkill = ToolSkill.UNKNOWN;
+
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(ImproverBot.class,
+        "Improves selected items in provided inventories. Tools searched from player's inventory. " +
+                "Items like water or stone searched before each improve, " +
+                "actual instruments searched one time before improve of the first item that must be improved with this tool. " +
+                "Tool for improving is determined by improve icon that you see on the right side of item row in inventory. " +
+                "For example improve icons for stone chisel and carving knife are equal, and sometimes bot can choose wrong tool. " +
+                "Use \"" + ImproverBot.InputKey.ci.name() + "\" key to change the chosen instrument.",
+                "i");
+    }
 
     @SuppressWarnings("ArraysAsListWithZeroOrOneArgument")
     public ImproverBot() {
@@ -39,7 +55,7 @@ public class ImproverBot extends Bot {
 
         tools.add(new Tool(808, "spatula", true, false, new HashSet<>(Arrays.asList(ToolSkill.POTTERY))));
         tools.add(new Tool(802, "clay shaper", true, false, new HashSet<>(Arrays.asList(ToolSkill.POTTERY))));
-        tools.add(new Tool(540, "water", false, true, new HashSet<>(Arrays.asList(ToolSkill.POTTERY, ToolSkill.CLOTH_TAILORING, ToolSkill.BLACKSMITHING))));
+        tools.add(new Tool(540, "water", false, false, new HashSet<>(Arrays.asList(ToolSkill.POTTERY, ToolSkill.CLOTH_TAILORING, ToolSkill.BLACKSMITHING))));
         tools.add(new Tool(591, "clay", false, true, new HashSet<>(Arrays.asList(ToolSkill.POTTERY))));
         tools.add(new Tool(4, "hand", true, false, new HashSet<>(Arrays.asList(ToolSkill.POTTERY))));
 
@@ -52,8 +68,25 @@ public class ImproverBot extends Bot {
         tools.add(new Tool(602, "leather", false, true, new HashSet<>(Arrays.asList(ToolSkill.LEATHERWORKING))));
 
         tools.add(new Tool(742, "hammer", true, true, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));
-        tools.add(new Tool(633, "lump", false, true, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));
         tools.add(new Tool(803, "whetstone", true, true, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));
+
+        tools.add(new Tool(633, "'lump, iron'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//iron
+        tools.add(new Tool(636, "'lump, copper'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//copper
+        tools.add(new Tool(632, "'lump, silver'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//silver
+        tools.add(new Tool(631, "'lump, electrum'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//electrum
+        tools.add(new Tool(631, "'lump, gold'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//gold
+        tools.add(new Tool(637, "'lump, tin'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//tin
+        tools.add(new Tool(635, "'lump, zinc'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//zinc
+        tools.add(new Tool(634, "'lump, lead'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//lead
+
+        tools.add(new Tool(672, "'lump, steel'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//steel
+        tools.add(new Tool(673, "'lump, brass'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//brass
+        tools.add(new Tool(671, "'lump, bronze'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//bronze
+
+        tools.add(new Tool(638, "'lump, glimmersteel'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//glimmersteel
+        tools.add(new Tool(639, "'lump, adamantine'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//adamantine
+        tools.add(new Tool(630, "'lump, seryll'", false, false, new HashSet<>(Arrays.asList(ToolSkill.BLACKSMITHING))));//seryll
+
     }
 
     @Override
@@ -61,15 +94,19 @@ public class ImproverBot extends Bot {
         setStaminaThreshold(0.8f);
         setTimeout(300);
         registerEventProcessors();
+        CreationWindow creationWindow = Mod.hud.getCreationWindow();
+        Object progressBar = ReflectionUtil.getPrivateField(creationWindow, ReflectionUtil.getField(creationWindow.getClass(), "progressBar"));
         while (isActive()) {
+            waitOnPause();
             if (targets.size() == 0 && !groundMode) {
                 sleep(timeout);
                 continue;
             }
+            float progress = ReflectionUtil.getPrivateField(progressBar, ReflectionUtil.getField(progressBar.getClass(), "progress"));
             float stamina = Mod.hud.getWorld().getPlayer().getStamina();
             float damage = Mod.hud.getWorld().getPlayer().getDamage();
             boolean improveInitiated = false;
-            if ((stamina+damage) > staminaThreshold) {
+            if ((stamina+damage) > staminaThreshold && progress == 0f && creationWindow.getActionInUse() == 0) {
                 if (!groundMode) {
                     List<InventoryMetaItem> selectedItems = new ArrayList<>();
                     for (InventoryListComponent ilc : targets) {
@@ -93,7 +130,7 @@ public class ImproverBot extends Bot {
                             continue;
                         }
                         if (tool.itemId == 0 || !tool.fixed) {
-                            boolean toolItemFound = assignItemForTool(tool);
+                            boolean toolItemFound = assignItemForTool(tool, itemToImprove.getWeight());
                             if (!toolItemFound)
                                 continue;
                         }
@@ -115,16 +152,44 @@ public class ImproverBot extends Bot {
                 } else {
                     PickableUnit pickableUnit = ReflectionUtil.getPrivateField(Mod.hud.getSelectBar(),
                             ReflectionUtil.getField(Mod.hud.getSelectBar().getClass(), "selectedUnit"));
-                    if (pickableUnit == null) {
+                    boolean isCreatureCell = pickableUnit instanceof CreatureCellRenderable && ((CreatureCellRenderable)pickableUnit).isItem();
+                    boolean isGroundCell = pickableUnit instanceof GroundItemCellRenderable;
+                    if (pickableUnit == null || (!isCreatureCell && !isGroundCell)) {
                         Utils.consolePrint("No selected item!");
                         sleep(timeout);
                         continue;
                     }
+                    byte materialId=-1;
+                    if(isCreatureCell){
+                        CreatureData creatureItem=((CreatureCellRenderable)pickableUnit).getCreatureData();
+                        materialId=creatureItem.getMaterialId();
+                    }
+                    if(isGroundCell){
+                        GroundItemData pickableItem = ReflectionUtil.getPrivateField(pickableUnit, ReflectionUtil.getField(GroundItemCellRenderable.class, "item"));
+                        materialId=pickableItem.getMaterialId();
+                    }
+                    if(materialId==-1){
+                        sleep(timeout);
+                        continue;
+                    }
+
+                    ToolSkill groundSkill = ToolSkill.getSkillForItem(materialId);
+                    if(groundSkill== ToolSkill.UNKNOWN){
+                        sleep(timeout);
+                        continue;
+                    }
+
+                    toolSkill=(groundSkill!=ToolSkill.UNKNOWN && groundSkill!=toolSkill)?groundSkill:toolSkill;
+
                     improveActionFinished = false;
                     Mod.hud.sendAction(PlayerAction.REPAIR, pickableUnit.getId());
                     for (Tool tool : getToolsBySkill(toolSkill)) {
                         if (tool.itemId == 0 || !tool.fixed) {
-                            boolean toolItemFound = assignItemForTool(tool);
+                            //process metal lumps
+                            if(MaterialUtilities.isMetal(materialId) && !tool.name.contains(MaterialUtilities.getMaterialString(materialId)) && tool.name.contains("lump"))
+                                continue;
+
+                            boolean toolItemFound = assignItemForTool(tool,-1);
                             if (!toolItemFound)
                                 continue;
                         }
@@ -162,12 +227,12 @@ public class ImproverBot extends Bot {
     private Tool findToolForImprove(InventoryMetaItem item) {
         if (item == null) return null;
         Tool returnTool = null;
+        if(!this.groundMode)
+            toolSkill = ToolSkill.getSkillForItem(item.getMaterialId());
+
         for(Tool tool : getToolsBySkill(toolSkill))
             if (tool.improveIconId == item.getImproveIconId()) {
-                //leather/pelt fix
-                boolean peltFix = (MaterialUtilities.isLeather(item.getMaterialId()) && tool.name.contains("pelt"))||
-                        (!MaterialUtilities.isLeather(item.getMaterialId()) && tool.name.contains("leather"));
-                if(item.getImproveIconId()==602 && peltFix)
+                if(MaterialUtilities.isMetal(item.getMaterialId()) && !tool.name.contains(MaterialUtilities.getMaterialString(item.getMaterialId())) && tool.name.contains("lump"))
                     continue;
 
                 if (tool.itemId == 0) {
@@ -187,14 +252,24 @@ public class ImproverBot extends Bot {
     /**
      * @return true on success
      */
-    private boolean assignItemForTool(Tool tool) {
+    private boolean assignItemForTool(Tool tool, float weight) {
         InventoryMetaItem toolItem = null;
         if (tool.exactName) {
-            Optional<InventoryMetaItem> toolOptionalItem = Utils.getInventoryItems(tool.name).stream().filter(item -> item.getBaseName().equals(tool.name)).findFirst();
+            Optional<InventoryMetaItem> toolOptionalItem;
+            toolOptionalItem = Utils.getInventoryItems(Mod.hud.getInventoryWindow().getInventoryListComponent(), tool.name).stream().filter(item -> item.getBaseName().equals(tool.name)).findFirst();
             if (toolOptionalItem.isPresent())
                 toolItem = toolOptionalItem.get();
-        } else
-            toolItem = Utils.getInventoryItem(tool.name);
+        } else if (!tool.fixed) {
+            Optional<InventoryMetaItem> toolOptionalItem;
+            if (weight != -1)
+                toolOptionalItem = Utils.getInventoryItems(Mod.hud.getInventoryWindow().getInventoryListComponent(), tool.name).stream().filter(item -> item.getWeight() > 0.5 || item.getWeight() > weight * 0.05).max((item1, item2) -> Float.compare(item1.getWeight(), item2.getWeight()));
+            else
+                toolOptionalItem = Utils.getInventoryItems(tool.name).stream().max((item1, item2) -> Float.compare(item1.getWeight(), item2.getWeight()));
+            if (toolOptionalItem.isPresent())
+                toolItem = toolOptionalItem.get();
+        }
+        else
+            toolItem = Utils.getInventoryItem(Mod.hud.getInventoryWindow().getInventoryListComponent(), tool.name);
         if (toolItem == null) {
             Utils.consolePrint("Can't find an item for a tool \"" + tool.name + "\"");
             return false;
@@ -229,10 +304,14 @@ public class ImproverBot extends Bot {
                         || message.contains("needs some holes punched with an awl")
                         || message.contains("has some holes and must be tailored with an iron needle to improve")
                         || message.contains("in order to smooth out a quirk")
-                        || message.contains("some flaws that must be fixed with a clay shaper")
+                        || message.contains("some flaws that must be fixed")
+                        || message.contains("some flaws that must be removed")
+                        || message.contains("needs water")
                         || message.contains("needs to be sharpened")
                         || message.contains("has some dents that must be flattened")
-                        || message.contains("dipping it in water"),
+                        || message.contains("dipping it in water")
+                        || message.contains("doesn't need repairing")
+                        || message.contains("You repair the"),
                 () -> improveActionFinished = true);
     }
 
@@ -284,10 +363,6 @@ public class ImproverBot extends Bot {
             groundMode = false;
             Utils.consolePrint("Ground mode is off!");
         } else {
-            if (toolSkill == ToolSkill.UNKNOWN) {
-                Utils.consolePrint("Choose the skill first with \"" + ImproverBot.InputKey.ss.name() + "\" key");
-                return;
-            }
             groundMode = true;
             Utils.consolePrint("Ground mode is on!");
         }
@@ -402,6 +477,21 @@ public class ImproverBot extends Bot {
             for(ToolSkill toolSkill : values())
                 if (toolSkill.abbreviation.equals(abbreviation))
                     return toolSkill;
+            return UNKNOWN;
+        }
+        static ToolSkill getSkillForItem(byte materialId){
+            if(MaterialUtilities.isWood(materialId))
+                return ToolSkill.CARPENTRY;
+            if(MaterialUtilities.isMetal(materialId))
+                return ToolSkill.BLACKSMITHING;
+            if(MaterialUtilities.isLeather(materialId))
+                return ToolSkill.LEATHERWORKING;
+            if(MaterialUtilities.isCloth(materialId))
+                return ToolSkill.CLOTH_TAILORING;
+            if(MaterialUtilities.isStone(materialId))
+                return ToolSkill.MASONRY;
+            if(MaterialUtilities.isClay(materialId))
+                return ToolSkill.POTTERY;
             return UNKNOWN;
         }
     }

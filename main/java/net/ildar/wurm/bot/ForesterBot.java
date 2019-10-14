@@ -5,8 +5,10 @@ import com.wurmonline.client.game.World;
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import com.wurmonline.mesh.FoliageAge;
 import com.wurmonline.mesh.Tiles;
+import com.wurmonline.mesh.TreeData;
 import com.wurmonline.shared.constants.PlayerAction;
 import javafx.util.Pair;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 
@@ -37,6 +39,17 @@ public class ForesterBot extends Bot {
     private boolean deforesting;
     private static int toHarvest;
 
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(ForesterBot.class,
+                "A forester bot. Can pick and plant sprouts, cut trees/bushes and gather the harvest in 3x3 area around player. " +
+                        "Bot can be configured to process rectangular area of any size. " +
+                        "Sprouts, to prevent the inventory overflow, will be put to the containers. The name of containers can be configured. " +
+                        "Default container name is \"" + ForesterBot.DEFAULT_CONTAINER_NAME + "\". Containers only in root directory of player's inventory will be taken into account. " +
+                        "New item names can be added(harvested fruits for example) to be moved to containers too. " +
+                        "Steppe and moss tiles will be cultivated if planting is enabled and player have shovel in his inventory. ",
+                "fr");
+    }
+
     public ForesterBot() {
         registerInputHandler(ForesterBot.InputKey.s, this::setStaminaThreshold);
         registerInputHandler(ForesterBot.InputKey.ca, input -> toggleAllTreesCutting());
@@ -47,8 +60,6 @@ public class ForesterBot extends Bot {
         registerInputHandler(ForesterBot.InputKey.scn, this::setContainerName);
         registerInputHandler(ForesterBot.InputKey.na, this::setMaxActions);
         registerInputHandler(ForesterBot.InputKey.aim, this::addItemToMove);
-        registerInputHandler(ForesterBot.InputKey.area, this::toggleAreaMode);
-        registerInputHandler(ForesterBot.InputKey.area_speed, this::setMovementSpeed);
     }
 
     @Override
@@ -59,6 +70,7 @@ public class ForesterBot extends Bot {
         PlayerObj player = world.getPlayer();
         maxActions = Utils.getMaxActionNumber();
         InventoryMetaItem sickle = Utils.getInventoryItem("sickle");
+        InventoryMetaItem bucket = Utils.getInventoryItem("bucket");
         lastActionFinishedTime = System.currentTimeMillis();
         long sickleId;
         if (sickle == null) {
@@ -69,8 +81,11 @@ public class ForesterBot extends Bot {
             sickleId = sickle.getId();
             Utils.consolePrint(this.getClass().getSimpleName() + " will use " + sickle.getDisplayName() + " with QL:" + sickle.getQuality() + " DMG:" + sickle.getDamage());
         }
+        if (bucket != null)
+            Utils.consolePrint(this.getClass().getSimpleName() + " will use " + bucket.getDisplayName() + " with QL:" + bucket.getQuality() + " DMG:" + bucket.getDamage());
         registerEventProcessors();
         while (isActive()) {
+            waitOnPause();
             float stamina = player.getStamina();
             float damage = player.getDamage();
             if (Math.abs(lastActionFinishedTime - System.currentTimeMillis()) > 10000 && (stamina + damage) > staminaThreshold)
@@ -93,7 +108,12 @@ public class ForesterBot extends Bot {
                         if (harvesting && fage.getAgeId() > FoliageAge.YOUNG_FOUR.getAgeId()
                                 && fage.getAgeId() < FoliageAge.OVERAGED.getAgeId()
                                 && tileType.usesNewData()  && (tileData & 0x8) > 0) {
-                            world.getServerConnection().sendAction(sickleId,
+                            if(tileType.getTreeType(tileData) == TreeData.TreeType.MAPLE && bucket!=null)
+                                world.getServerConnection().sendAction(bucket.getId(),
+                                        new long[]{Tiles.getTileId(checkedtiles[tileIndex][0], checkedtiles[tileIndex][1], 0)},
+                                        PlayerAction.HARVEST);
+                            else
+                                world.getServerConnection().sendAction(sickleId,
                                     new long[]{Tiles.getTileId(checkedtiles[tileIndex][0], checkedtiles[tileIndex][1], 0)},
                                     PlayerAction.HARVEST);
                             increaseHarvests(fage);
@@ -239,35 +259,6 @@ public class ForesterBot extends Bot {
         lastActionFinishedTime = System.currentTimeMillis();
     }
 
-    private void toggleAreaMode(String []input) {
-        boolean successfullAreaModeChange = areaAssistant.toggleAreaTour(input);
-        if (!successfullAreaModeChange)
-            printInputKeyUsageString(ForesterBot.InputKey.area);
-    }
-
-    private void setMovementSpeed(String []input) {
-        if (input == null || input.length != 1) {
-            printInputKeyUsageString(ForesterBot.InputKey.area_speed);
-            return;
-        }
-        float speed;
-        try {
-            speed = Float.parseFloat(input[0]);
-            if (speed < 0) {
-                Utils.consolePrint("Speed can not be negative");
-                return;
-            }
-            if (speed == 0) {
-                Utils.consolePrint("Speed can not be equal to 0");
-                return;
-            }
-            areaAssistant.setStepTimeout((long) (1000 / speed));
-            Utils.consolePrint(String.format("The speed for area mode was set to %.2f", speed));
-        } catch (NumberFormatException e) {
-            Utils.consolePrint("Wrong speed value");
-        }
-    }
-
     private void addItemToMove(String []input) {
         if (input == null || input.length != 1) {
             printInputKeyUsageString(ForesterBot.InputKey.aim);
@@ -404,9 +395,7 @@ public class ForesterBot extends Bot {
         p("Toggle the planting", ""),
         scn("Set the new name for containers to put sprouts/harvest", "container_name"),
         na("Set the number of actions bot will do each time", "number"),
-        aim("Add new item name for moving into containers", "item_name"),
-        area("Toggle the area processing mode. ", "tiles_ahead tiles_to_the_right"),
-        area_speed("Set the speed of moving for area mode. Default value is 1 second per tile.", "speed(float value)");
+        aim("Add new item name for moving into containers", "item_name");
 
         private String description;
         private String usage;

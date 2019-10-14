@@ -3,6 +3,7 @@ package net.ildar.wurm.bot;
 import com.wurmonline.client.renderer.PickableUnit;
 import com.wurmonline.client.renderer.gui.CreationWindow;
 import com.wurmonline.shared.constants.PlayerAction;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
@@ -13,6 +14,11 @@ public class MeditationBot extends Bot {
     private float staminaThreshold;
     private int clicks = 3;
     private boolean repairInitiated;
+
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(MeditationBot.class,
+                "Meditates on the carpet. Assumes that there are no restrictions on meditation skill.", "md");
+    }
 
     public MeditationBot() {
         registerInputHandler(MeditationBot.InputKey.s, this::setStaminaThreshold);
@@ -37,8 +43,9 @@ public class MeditationBot extends Bot {
         CreationWindow creationWindow = Mod.hud.getCreationWindow();
         Object progressBar = ReflectionUtil.getPrivateField(creationWindow,
                 ReflectionUtil.getField(creationWindow.getClass(), "progressBar"));
-        PlayerAction meditationAction = new PlayerAction((short) 384, PlayerAction.ANYTHING);
-        while(isActive()) {
+        PlayerAction meditationAction = new PlayerAction("",(short) 384, PlayerAction.ANYTHING);
+        while (isActive()) {
+            waitOnPause();
             if (Math.abs(lastRepair - System.currentTimeMillis()) > repairTimeout) {
                 repairInitiated = false;
                 int count = 0;

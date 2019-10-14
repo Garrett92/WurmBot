@@ -1,6 +1,7 @@
 package net.ildar.wurm.bot;
 
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 
@@ -13,6 +14,13 @@ public class ForageStuffMoverBot extends Bot {
     private boolean moveRareItems;
     private boolean notMoveRocks;
 
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(ForageStuffMoverBot.class,
+                "Moves foragable and botanizable items from your inventory to the target inventories. " +
+                        "Optionally you can toggle the moving of rocks or rare items on and off.",
+                "fsm");
+    }
+
     public ForageStuffMoverBot() {
         registerInputHandler(ForageStuffMoverBot.InputKey.at, input -> addTarget());
         registerInputHandler(ForageStuffMoverBot.InputKey.r, input -> toggleMovingRareItems());
@@ -22,6 +30,7 @@ public class ForageStuffMoverBot extends Bot {
     @Override
     public void work() throws Exception{
         while (isActive()) {
+            waitOnPause();
             List<InventoryMetaItem> foragables = Utils.getSelectedItems(Mod.hud.getInventoryWindow().getInventoryListComponent(), true, true);
             List<InventoryMetaItem> moveList = foragables.stream()
                     .filter(item -> ForagerBot.isForagable(item) && !(notMoveRocks && item.getBaseName().contains("rock")))

@@ -8,6 +8,7 @@ import com.wurmonline.client.renderer.gui.InventoryListComponent;
 import com.wurmonline.client.renderer.gui.ItemListWindow;
 import com.wurmonline.client.renderer.gui.WurmComponent;
 import com.wurmonline.shared.constants.PlayerAction;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
@@ -23,6 +24,11 @@ public class PileCollector extends Bot {
     private int containerCapacity = 300;
     private String targetItemName = "dirt";
 
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(PileCollector.class,
+                "Collects piles of items to bulk containers. Default name for target items is \"dirt\"", "pc");
+    }
+
     public PileCollector() {
         registerInputHandler(PileCollector.InputKey.stn, this::setTargetName);
         registerInputHandler(PileCollector.InputKey.st, this::setTargetInventoryName);
@@ -34,6 +40,7 @@ public class PileCollector extends Bot {
         setTimeout(500);
         ServerConnectionListenerClass sscc = Mod.hud.getWorld().getServerConnection().getServerConnectionListener();
         while (isActive()) {
+            waitOnPause();
             Map<Long, GroundItemCellRenderable> groundItemsMap = ReflectionUtil.getPrivateField(sscc,
                     ReflectionUtil.getField(sscc.getClass(), "groundItems"));
             List<GroundItemCellRenderable> groundItems = groundItemsMap.entrySet().stream().map(Map.Entry::getValue).collect(Collectors.toList());
@@ -56,7 +63,7 @@ public class PileCollector extends Bot {
 
                     }
                 } catch (ConcurrentModificationException ignored) {}
-                for(WurmComponent wurmComponent : Mod.components) {
+                for(WurmComponent wurmComponent : Mod.getInstance().components) {
                     if (wurmComponent instanceof ItemListWindow) {
                         InventoryListComponent ilc = ReflectionUtil.getPrivateField(wurmComponent,
                                 ReflectionUtil.getField(wurmComponent.getClass(), "component"));

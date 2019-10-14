@@ -5,6 +5,7 @@ import com.wurmonline.client.renderer.GroundItemData;
 import com.wurmonline.client.renderer.cell.GroundItemCellRenderable;
 import com.wurmonline.client.renderer.cell.StaticModelRenderable;
 import com.wurmonline.shared.constants.PlayerAction;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
@@ -12,9 +13,14 @@ import org.gotti.wurmunlimited.modloader.ReflectionUtil;
 import java.util.*;
 
 public class GroundItemGetterBot extends Bot {
-    private static Set <String> itemNames = new HashSet<>();
-    public static boolean active;
-    private static float distance = 4;
+    private Set <String> itemNames = new HashSet<>();
+    private float distance = 4;
+
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(GroundItemGetterBot.class,
+                "Collects items from the ground around player.",
+                "gig");
+    }
 
     public GroundItemGetterBot() {
         registerInputHandler(GroundItemGetterBot.InputKey.a, this::addNewItemName);
@@ -22,9 +28,9 @@ public class GroundItemGetterBot extends Bot {
     }
     @Override
     public void work() throws Exception{
-        active = true;
         setTimeout(500);
         while (isActive()) {
+            waitOnPause();
             if (itemNames.size() > 0) {
                 ServerConnectionListenerClass sscc = Mod.hud.getWorld().getServerConnection().getServerConnectionListener();
                 Map<Long, GroundItemCellRenderable> groundItems = ReflectionUtil.getPrivateField(sscc,
@@ -50,15 +56,8 @@ public class GroundItemGetterBot extends Bot {
         }
     }
 
-    @Override
-    public synchronized void deactivate() {
-        active = false;
-        super.deactivate();
-    }
-
     @SuppressWarnings("unused")
-    public static void processNewItem(StaticModelRenderable staticModelRenderable) {
-        if (!active) return;
+    public void processNewItem(StaticModelRenderable staticModelRenderable) {
         try {
             float x = Mod.hud.getWorld().getPlayerPosX();
             float y = Mod.hud.getWorld().getPlayerPosY();

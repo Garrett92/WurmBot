@@ -7,10 +7,12 @@ import com.wurmonline.client.renderer.gui.CreationWindow;
 import com.wurmonline.mesh.Tiles;
 import com.wurmonline.shared.constants.PlayerAction;
 import javafx.util.Pair;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -32,6 +34,13 @@ public class DiggerBot extends Bot{
     private boolean surfaceMiningMode;
     private InventoryMetaItem pickaxeItem;
 
+    public static Tiles.Tile[] DirtList = {Tiles.Tile.TILE_DIRT, Tiles.Tile.TILE_GRASS, Tiles.Tile.TILE_SAND, Tiles.Tile.TILE_MYCELIUM, Tiles.Tile.TILE_TUNDRA, Tiles.Tile.TILE_STEPPE};
+
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(DiggerBot.class,
+                "Does the dirty job for you", "d");
+    }
+
     public DiggerBot() {
         registerInputHandler(DiggerBot.InputKey.s, this::setStaminaThreshold);
         registerInputHandler(DiggerBot.InputKey.c, this::setClicksNumber);
@@ -42,8 +51,6 @@ public class DiggerBot extends Bot{
         registerInputHandler(DiggerBot.InputKey.la, this::toggleLevellingArea);
         registerInputHandler(DiggerBot.InputKey.tr, input -> toggleToolRepairing());
         registerInputHandler(DiggerBot.InputKey.sm, input -> toggleSurfaceMining());
-        registerInputHandler(DiggerBot.InputKey.area, this::toggleAreaMode);
-        registerInputHandler(DiggerBot.InputKey.area_speed, this::setMovementSpeed);
 
         areaAssistant = new AreaAssistant(this);
         areaAssistant.setMoveAheadDistance(1);
@@ -87,7 +94,8 @@ public class DiggerBot extends Bot{
         CreationWindow creationWindow = Mod.hud.getCreationWindow();
         Object progressBar = ReflectionUtil.getPrivateField(creationWindow, ReflectionUtil.getField(creationWindow.getClass(), "progressBar"));
         registerEventProcessors();
-        while(isActive()) {
+        while (isActive()) {
+            waitOnPause();
             if (toolRepairing) {
                 if (surfaceMiningMode && pickaxeItem.getDamage() > 10)
                     Mod.hud.sendAction(PlayerAction.REPAIR, pickaxeItem.getId());
@@ -106,6 +114,7 @@ public class DiggerBot extends Bot{
                         if (!actionsMade) {
                             workMode = WorkMode.Unknown;
                             Utils.showOnScreenMessage("Digging is over");
+                            clearInvalidCorners();
                         }
                         break;
                     }
@@ -235,6 +244,7 @@ public class DiggerBot extends Bot{
     private boolean doDigActions() {
         int x = Math.round(Mod.hud.getWorld().getPlayerPosX() / 4);
         int y = Math.round(Mod.hud.getWorld().getPlayerPosY() / 4);
+        Tiles.Tile tileType = Mod.hud.getWorld().getNearTerrainBuffer().getTileType(x, y);
         if (isCornerInvalid(x, y))
             return false;
         int h = (int) (Mod.hud.getWorld().getNearTerrainBuffer().getHeight(x, y)* 10);
@@ -244,9 +254,15 @@ public class DiggerBot extends Bot{
             int neededClicks = Math.min(h - diggingHeightLimit, clicks);
             if (surfaceMiningMode) {
                 for (int i = 0; i < neededClicks; i++) {
-                    Mod.hud.getWorld().getServerConnection().sendAction(pickaxeItem.getId(),
-                            new long[]{Tiles.getTileId(x, y, 0)},
-                            PlayerAction.MINE_FORWARD);
+                    if(isTileRock(tileType)) {
+                        Mod.hud.getWorld().getServerConnection().sendAction(pickaxeItem.getId(),
+                                new long[]{Tiles.getTileId(x, y, 0)},
+                                PlayerAction.MINE_FORWARD);
+                    }else if(isTileDirt(tileType)){
+                        Mod.hud.getWorld().getServerConnection().sendAction(shovelItem.getId(),
+                                new long[]{Tiles.getTileId(x, y, 0)},
+                                digAction);
+                    }
                 }
                 return true;
             } else {
@@ -288,6 +304,10 @@ public class DiggerBot extends Bot{
         invalidCorners.add(new Pair<>(x, y));
     }
 
+    private void clearInvalidCorners(){
+        invalidCorners.clear();
+    }
+
     private boolean validCornersExists() {
         if (workMode != WorkMode.DiggingTile)
             return false;
@@ -305,10 +325,25 @@ public class DiggerBot extends Bot{
         return false;
     }
 
+    private boolean isTileRock(int x, int y){
+        Tiles.Tile t = Mod.hud.getWorld().getNearTerrainBuffer().getTileType(x,y);
+        return isTileRock(t);
+    }
+    private boolean isTileRock(Tiles.Tile t){
+        return t == Tiles.Tile.TILE_ROCK;
+    }
+    private boolean isTileDirt(int x, int y){
+        Tiles.Tile t = Mod.hud.getWorld().getNearTerrainBuffer().getTileType(x,y);
+        return isTileDirt(t);
+    }
+    private boolean isTileDirt(Tiles.Tile t){
+        return Arrays.asList(DirtList).contains(t);
+    }
+
     private boolean isCornerInvalid(int x, int y) {
         if (invalidCorners.contains(new Pair<>(x, y)))
             return true;
-        if (surfaceMiningMode && !areSurroundingTilesRocks(x, y))
+        if (surfaceMiningMode && !areSurroundingTilesRocks(x, y) && isTileRock(x,y) )
             return true;
         if (!surfaceMiningMode && isRockTileNear(x, y))
             return true;
@@ -497,36 +532,6 @@ public class DiggerBot extends Bot{
         Utils.consolePrint("The repairing of the tool is " + (toolRepairing ?"on":"off"));
     }
 
-    private void toggleAreaMode(String []input) {
-        boolean successfullAreaModeChange = areaAssistant.toggleAreaTour(input);
-        if (!successfullAreaModeChange)
-            printInputKeyUsageString(DiggerBot.InputKey.area);
-    }
-
-    private void setMovementSpeed(String []input) {
-        if (input == null || input.length != 1) {
-            printInputKeyUsageString(DiggerBot.InputKey.area_speed);
-            return;
-        }
-        float speed;
-        try {
-            speed = Float.parseFloat(input[0]);
-            if (speed < 0) {
-                Utils.consolePrint("Speed can not be negative");
-                return;
-            }
-            if (speed == 0) {
-                Utils.consolePrint("Speed can not be equal to 0");
-                return;
-            }
-            areaAssistant.setStepTimeout((long) (1000 / speed));
-            stepDuration /= speed;
-            Utils.consolePrint(String.format("The speed for area mode was set to %.2f", speed));
-        } catch (NumberFormatException e) {
-            Utils.consolePrint("Wrong speed value");
-        }
-    }
-
     private enum WorkMode{
         Unknown,
         Digging,
@@ -550,9 +555,7 @@ public class DiggerBot extends Bot{
         l("Toggle the levelling of selected tile", ""),
         la("Toggle the levelling of area around player", "height(in slopes)"),
         tr("Toggle the repairing of the tool", ""),
-        sm("Toggle the surface mining. The bot will do the same but with the pickaxe on the rock", ""),
-        area("Toggle the area processing mode. Works only when digging a tile(see \"" + dtile.name() + "\" key)", "tiles_ahead tiles_to_the_right"),
-        area_speed("Set the speed of moving for area mode. Default value is 1 second per tile.", "speed(float value)");
+        sm("Toggle the surface mining. The bot will do the same but with the pickaxe on the rock", "");
 
         private String description;
         private String usage;

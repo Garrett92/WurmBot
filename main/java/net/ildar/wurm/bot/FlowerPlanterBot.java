@@ -5,6 +5,7 @@ import com.wurmonline.client.renderer.gui.CreationWindow;
 import com.wurmonline.mesh.GrassData;
 import com.wurmonline.mesh.Tiles;
 import com.wurmonline.shared.constants.PlayerAction;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
@@ -16,6 +17,12 @@ public class FlowerPlanterBot extends Bot {
     private float staminaThreshold;
     private long sickleId;
     private long shovelId;
+
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(FlowerPlanterBot.class,
+                "Skills up player's gardening skill by planting and picking flowers in surrounding area",
+                "fp");
+    }
 
     public FlowerPlanterBot() {
         registerInputHandler(FlowerPlanterBot.InputKey.s, this::setStaminaThreshold);
@@ -51,6 +58,7 @@ public class FlowerPlanterBot extends Bot {
 
         BotState state = BotState.PLANT;
         while (isActive()) {
+            waitOnPause();
             float stamina = Mod.hud.getWorld().getPlayer().getStamina();
             float damage = Mod.hud.getWorld().getPlayer().getDamage();
             float progress = ReflectionUtil.getPrivateField(progressBar,
@@ -74,7 +82,7 @@ public class FlowerPlanterBot extends Bot {
                             if (type.tilename.equals("Dirt")) {
                                 Mod.hud.getWorld().getServerConnection().sendAction(flowerIds[sentactions],
                                         new long[]{Tiles.getTileId(checkedtiles[i][0], checkedtiles[i][1], 0)},
-                                        new PlayerAction((short)186, PlayerAction.ANYTHING));
+                                        new PlayerAction("",(short)186, PlayerAction.ANYTHING));
                                 ++sentactions;
                             }
                         }
@@ -87,7 +95,7 @@ public class FlowerPlanterBot extends Bot {
                             if (type.isGrass() && GrassData.getFlowerTypeName(data).contains("flowers")) {
                                 Mod.hud.getWorld().getServerConnection().sendAction(sickleId,
                                         new long[]{Tiles.getTileId(checkedtiles[i][0], checkedtiles[i][1], 0)},
-                                        new PlayerAction((short)187, PlayerAction.ANYTHING));
+                                        new PlayerAction("",(short)187, PlayerAction.ANYTHING));
                                 ++sentactions;
                             }
                         }

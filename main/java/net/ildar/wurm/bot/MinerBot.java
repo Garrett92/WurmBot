@@ -9,6 +9,7 @@ import com.wurmonline.client.renderer.gui.*;
 import com.wurmonline.mesh.Tiles;
 import com.wurmonline.shared.constants.PlayerAction;
 import javafx.util.Pair;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
@@ -38,6 +39,11 @@ public class MinerBot extends Bot {
     private boolean noOre;
     private Random random = new Random();
     private Direction direction = Direction.FORWARD;
+
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(MinerBot.class,
+                "Mines rocks and smelts ores.", "m");
+    }
 
     public MinerBot() {
         registerInputHandler(MinerBot.InputKey.s, this::setStaminaThreshold);
@@ -78,9 +84,10 @@ public class MinerBot extends Bot {
                 + " DMG:" + pickaxe.getDamage());
         registerEventProcessors();
         while (isActive()) {
+            waitOnPause();
             if (shardsCombining) {
                 List<ItemListWindow> piles = new ArrayList<>();
-                for (WurmComponent wurmComponent : Mod.components)
+                for (WurmComponent wurmComponent : Mod.getInstance().components)
                     if (wurmComponent instanceof ItemListWindow
                             && !(wurmComponent instanceof InventoryWindow)) {
                         if (Utils.getRootItem(ReflectionUtil.getPrivateField(wurmComponent,
@@ -94,7 +101,7 @@ public class MinerBot extends Bot {
                 int tileX = Mod.hud.getWorld().getPlayerCurrentTileX();
                 int tileY = Mod.hud.getWorld().getPlayerCurrentTileY();
                 List<Long> closePileIds = new ArrayList<>();
-                for (Map.Entry<Long, GroundItemCellRenderable> entry : groundItems.entrySet()) {
+                for (Map.Entry<Long, GroundItemCellRenderable> entry : new HashSet<>(groundItems.entrySet())) {
                     GroundItemCellRenderable groundItem = entry.getValue();
                     GroundItemData groundItemData = ReflectionUtil.getPrivateField(groundItem,
                             ReflectionUtil.getField(groundItem.getClass(), "item"));
@@ -298,7 +305,7 @@ public class MinerBot extends Bot {
                         if (item != null)
                             Mod.hud.getWorld().getServerConnection().sendAction(item.getId(),
                                         new long[]{Utils.getRootItem(smeltingOptions.smelter).getId()},
-                                        new PlayerAction((short)117, PlayerAction.ANYTHING));
+                                        new PlayerAction("",(short)117, PlayerAction.ANYTHING));
                         else
                             Utils.consolePrint("No fuel in inventory!");
                     }

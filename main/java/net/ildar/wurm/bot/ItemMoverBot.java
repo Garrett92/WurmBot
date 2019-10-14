@@ -2,6 +2,7 @@ package net.ildar.wurm.bot;
 
 import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import com.wurmonline.client.renderer.gui.*;
+import net.ildar.wurm.BotRegistration;
 import net.ildar.wurm.Mod;
 import net.ildar.wurm.Utils;
 import org.gotti.wurmunlimited.modloader.ReflectionUtil;
@@ -20,10 +21,16 @@ public class ItemMoverBot extends Bot {
     private String lastItemName;
     private boolean onlyFirstLevelItems = true;
 
+    public static BotRegistration getRegistration() {
+        return new BotRegistration(ItemMoverBot.class,
+                "Moves items from your inventory to the target destination.", "im");
+    }
+
     @Override
     public void work() throws Exception{
         setTimeout(15000);
         while (isActive()) {
+            waitOnPause();
             if (itemNames != null && itemNames.size() > 0 && (target != 0 || targetComponent != null)) {
                 List<InventoryMetaItem> invItems;
                 if (onlyFirstLevelItems)
@@ -57,16 +64,16 @@ public class ItemMoverBot extends Bot {
                         case Containers:
                             List<InventoryMetaItem> containers = Utils.getInventoryItems(targetComponent, containerName);
                             if (containers != null && containers.size() > 0) {
-                                long targetContainer = 0;
-                                for (int i = 0; i < containers.size(); i++)
-                                    if (containers.get(i).getChildren().size() < containerVolume) {
-                                        targetContainer = containers.get(i).getId();
-                                        break;
+                                for (InventoryMetaItem container : containers)
+                                    if (container.getChildren().size() < containerVolume) {
+                                        int quantityToMove = Math.min(containerVolume - container.getChildren().size(), sources.length);
+                                        Mod.hud.getWorld().getServerConnection().sendMoveSomeItems(
+                                                container.getId(), Arrays.copyOfRange(sources, 0, quantityToMove));
+                                        sources = Arrays.copyOfRange(sources, quantityToMove, sources.length);
+                                        if (sources.length == 0)
+                                            break;
                                     }
-                                if (targetContainer != 0)
-                                    Mod.hud.getWorld().getServerConnection().sendMoveSomeItems(
-                                            targetContainer, sources);
-                                else
+                                if (sources.length > 0)
                                     Utils.consolePrint("All containers are full!");
                             } else
                                 Utils.consolePrint("Didn't find any \"" + containerName + "\" containers inside target container");
@@ -80,6 +87,7 @@ public class ItemMoverBot extends Bot {
     }
 
     public ItemMoverBot() {
+        registerInputHandler(ItemMoverBot.InputKey.clear, input -> clearItemList());
         registerInputHandler(ItemMoverBot.InputKey.st, input -> setTargetItem());
         registerInputHandler(ItemMoverBot.InputKey.stid, this::setTargetById);
         registerInputHandler(ItemMoverBot.InputKey.str, input -> setTargetContainerRoot());
@@ -237,24 +245,44 @@ public class ItemMoverBot extends Bot {
     }
 
     private void addItem(String item) {
+        String matchList = "(\\s*,\\s*)(?=(?:(?:[^']*'){2})*[^']*$)";
         if (itemNames == null)
             itemNames = new HashSet<>();
         if (itemMaximumWeights == null)
             itemMaximumWeights = new HashMap<>();
-        itemNames.add(item);
-        itemMaximumWeights.put(item, 0f);
-        lastItemName = item;
+        if(item.contains(",")){
+            String[] items = item.split(matchList);
+            for(String it: items){
+                if(!it.equals("")){
+                    itemNames.add(it);
+                    itemMaximumWeights.put(it, 0f);
+                    lastItemName = it;
+                }
+            }
+        }else{
+            itemNames.add(item);
+            itemMaximumWeights.put(item, 0f);
+            lastItemName = item;
+        }
+        Utils.consolePrint("Current item set - " + itemNames.toString());
+    }
+
+    private void clearItemList(){
+        itemNames.clear();
+        itemMaximumWeights.clear();
+        lastItemName="";
         Utils.consolePrint("Current item set - " + itemNames.toString());
     }
 
     private enum InputKey implements Bot.InputKey {
+        clear("Clear item list",""),
         st("Set the target item(under mouse pointer). Items from your inventory will be moved inside this item if it is a container or next to it otherwise.", ""),
         stid("Set the id of target item. Items from your inventory will be moved inside this item if it is a container or next to it otherwise.", "id"),
         str("Set the target container(under mouse pointer). Items from your inventory will be moved to the root directory of that container.", ""),
         stcn("Set the number of items to put inside each container. Use with \"stc\" key", "number"),
         stc("Set the target container(under mouse pointer) with another containers inside. " +
                 "Items from your inventory will be moved to containers with provided name. " +
-                "Bot will try to put 100 items inside each container. But you change this value using \"" + stcn.name() + "\" key.", "container_name"),
+                "Bot will try to put 100 items inside each container. But you can change this value using \"" + stcn.name() + "\" key.", "container_name"),
         sw("Set the maximum weight for item to be moved. Affects the last added item name.", "weight(float number)"),
         a("Add new item name to move to the targets. " +
                 "The maximum weight of moved item can be configured with \"" + sw.name() + "\" key", "name"),
